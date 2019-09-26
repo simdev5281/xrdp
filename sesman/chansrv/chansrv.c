@@ -1811,12 +1811,16 @@ main(int argc, char **argv)
     if (display_text)
         get_display_num_from_display(display_text);
 
+    /* Also need the hostname on NFS home dirs */
+    if (g_gethostname(text,sizeof(text)) < 0)
+        g_strcpy(text,"unknown-host");
+
     log_level = get_log_level(g_getenv("CHANSRV_LOG_LEVEL"), LOG_LEVEL_INFO);
 
     /* starting logging subsystem */
     g_memset(&logconfig, 0, sizeof(struct log_config));
     logconfig.program_name = "xrdp-chansrv";
-    g_snprintf(log_file, 255, "%s/xrdp-chansrv.%d.log", log_path, g_display_num);
+    g_snprintf(log_file, 255, "%s/xrdp-chansrv.%s.%d.log", log_path, text, g_display_num);
     g_writeln("chansrv::main: using log file [%s]", log_file);
 
     if (g_file_exist(log_file))

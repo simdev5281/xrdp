@@ -2407,6 +2407,26 @@ g_directory_exist(const char *dirname)
 }
 
 /*****************************************************************************/
+/* returns boolean, non zero if the directory exists and is writeable */
+int
+g_directory_writeable(const char *dirname)
+{
+    int status = 0;
+    if (g_directory_exist(dirname))
+    {
+#if defined(_WIN32)
+         // Directories cannot be read-only on Windows. This is the
+         // approach taken by cpython anyway!
+         status = 1;
+#else
+         status = (access(dirname, R_OK | W_OK) == 0);
+#endif
+    }
+
+    return status;
+}
+
+/*****************************************************************************/
 /* returns boolean */
 int
 g_create_dir(const char *dirname)

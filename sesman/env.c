@@ -87,6 +87,35 @@ env_check_password_file(const char *filename, const char *passwd)
 }
 
 /******************************************************************************/
+/*
+ * Needed on systems where the home dir is created (by oddjobd or
+ * otherwise) by calling auth_start_session() in a different process.
+ */
+static void wait_writeable_dir(const char *dir,unsigned int timeout)
+{
+    unsigned int count = 0;
+    int dirok;
+
+    while ((dirok = g_directory_writeable(dir)) == 0 && count < timeout)
+    {
+        g_sleep(1000);
+        ++count;
+    }
+
+    if (!dirok)
+    {
+        log_message(LOG_LEVEL_ERROR,
+            "Dir %s not writeable after %u secs",dir,count);
+    }
+    else if (count > 0)
+    {
+        log_message(LOG_LEVEL_INFO,
+            "Waited %u secs for writeable %s",count,dir);
+    }
+}
+
+
+/******************************************************************************/
 /*  its the responsibility of the caller to free passwd_file                  */
 int
 env_set_user(const char *username, char **passwd_file, int display,
@@ -138,6 +167,7 @@ env_set_user(const char *username, char **passwd_file, int display,
             g_sprintf(text, "%d", uid);
             g_setenv("UID", text, 1);
             g_setenv("HOME", pw_dir, 1);
+            wait_writeable_dir(pw_dir, 5);
             g_set_current_dir(pw_dir);
             g_sprintf(text, ":%d.0", display);
             g_setenv("DISPLAY", text, 1);

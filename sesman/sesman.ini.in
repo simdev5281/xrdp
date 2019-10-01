@@ -88,7 +88,7 @@ param=Xorg
 param=-config
 param=xrdp/xorg.conf
 param=-noreset
-param=-nolisten
+param=-listen
 param=tcp
 param=-logfile
 param=.xorgxrdp.%s.log
@@ -96,7 +96,7 @@ param=.xorgxrdp.%s.log
 [Xvnc]
 param=Xvnc
 param=-bs
-param=-nolisten
+param=-listen
 param=tcp
 param=-localhost
 param=-dpi

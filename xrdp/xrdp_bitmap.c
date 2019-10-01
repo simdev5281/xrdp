@@ -28,6 +28,8 @@
 #include "xrdp.h"
 #include "log.h"
 
+#include <png.h>
+
 #define LLOG_LEVEL 1
 #define LLOGLN(_level, _args) \
   do \
@@ -431,8 +433,8 @@ xrdp_bitmap_resize(struct xrdp_bitmap *self, int width, int height)
 /* load a bmp file */
 /* return 0 ok */
 /* return 1 error */
-int
-xrdp_bitmap_load(struct xrdp_bitmap *self, const char *filename, int *palette)
+static int
+xrdp_bitmap_load_bmp(struct xrdp_bitmap *self, const char *filename, int *palette)
 {
     int fd = 0;
     int i = 0;
@@ -715,6 +717,285 @@ xrdp_bitmap_load(struct xrdp_bitmap *self, const char *filename, int *palette)
 
     return 0;
 }
+
+/*****************************************************************************/
+static int
+swap_pixel_data(struct xrdp_bitmap* a, struct xrdp_bitmap *b)
+{
+    int tmp_width;
+    int tmp_height;
+    int tmp_bpp;
+    int tmp_line_size;
+    char* tmp_data;
+
+    if (a->do_not_free_data || b->do_not_free_data)
+    {
+        return 1;
+    }
+    if (a->type != WND_TYPE_BITMAP && a->type != WND_TYPE_IMAGE)
+    {
+        return 1;
+    }
+    if (b->type != WND_TYPE_BITMAP && b->type != WND_TYPE_IMAGE)
+    {
+        return 1;
+    }
+
+    tmp_width = a->width;
+    tmp_height = a->height;
+    tmp_bpp = a->bpp;
+    tmp_line_size = a->line_size;
+    tmp_data = a->data;
+
+    a->width = b->width;
+    a->height = b->height;
+    a->bpp = b->bpp;
+    a->line_size = b->line_size;
+    a->data = b->data;
+
+    b->width = tmp_width;
+    b->height = tmp_height;
+    b->bpp = tmp_bpp;
+    b->line_size = tmp_line_size;
+    b->data = tmp_data;
+
+    return 0;
+}
+
+/*****************************************************************************/
+int
+xrdp_bitmap_scale(struct xrdp_bitmap* self, int targ_width, int targ_height)
+{
+    int src_width = self->width,src_height = self->height;
+    int result = 0;
+
+    /* Only resize allocated images/bitmaps */
+    if (self->do_not_free_data ||
+        (self->type != WND_TYPE_IMAGE && self->type != WND_TYPE_BITMAP))
+    {
+        result = 1;
+    }
+    else
+    if (src_width != targ_width || src_height != targ_height)
+    {
+        struct xrdp_bitmap *target = xrdp_bitmap_create(targ_width,targ_height,self->bpp,WND_TYPE_BITMAP,0);
+        int targ_x,targ_y;
+
+        /* For each pixel in the target pixmap, scale to one in the source */
+        for (targ_x = 0 ; targ_x < targ_width; ++targ_x) {
+            int src_x = targ_x * src_width / targ_width;
+            for (targ_y = 0 ; targ_y < targ_height; ++targ_y) {
+                int src_y = targ_y * src_height / targ_height;
+                xrdp_bitmap_set_pixel(target,targ_x,targ_y,
+                            xrdp_bitmap_get_pixel(self,src_x,src_y));
+            }
+        }
+
+        result = swap_pixel_data(self,target);
+        xrdp_bitmap_delete(target);
+    }
+    return result;
+}
+
+/*****************************************************************************/
+int
+xrdp_bitmap_zoom(struct xrdp_bitmap* self, int targ_width, int targ_height)
+{
+    /*
+     Like xrdp_bitmap_scale(), but keeps the aspect ratio by chopping off
+     pixels on the left+right or the top+bottom
+     */
+    int src_width = self->width,src_height = self->height;
+    double targ_ratio = (double)targ_width / targ_height;
+    double src_ratio = (double)src_width / src_height;
+    int result = 0;
+
+    /* Only resize allocated images/bitmaps */
+    if (self->do_not_free_data ||
+        (self->type != WND_TYPE_IMAGE && self->type != WND_TYPE_BITMAP))
+    {
+        result = 1;
+    }
+    else if (src_ratio > targ_ratio)
+    {
+        /* Source is wider */
+        unsigned int new_width = (int)(targ_ratio * src_height + .5);
+        unsigned int left_margin = (src_width - new_width) / 2;
+        struct xrdp_bitmap *chopped = xrdp_bitmap_create(new_width,src_height,self->bpp,WND_TYPE_BITMAP,0);
+        if (xrdp_bitmap_copy_box(self,chopped,left_margin,0,new_width,src_height) == 0)
+            result = swap_pixel_data(self,chopped);
+        xrdp_bitmap_delete(chopped);
+    }
+    else if (src_ratio < targ_ratio)
+    {
+        unsigned int new_height = (int)(src_width / targ_ratio + .5);
+        unsigned int top_margin = (src_height - new_height) / 2;
+        struct xrdp_bitmap *chopped = xrdp_bitmap_create(src_width,new_height,self->bpp,WND_TYPE_BITMAP,0);
+        if (xrdp_bitmap_copy_box(self,chopped,0,top_margin,src_width,new_height) == 0)
+            result = swap_pixel_data(self,chopped);
+        xrdp_bitmap_delete(chopped);
+    }
+
+    if (result == 0) result = xrdp_bitmap_scale(self,targ_width,targ_height);
+
+    return result;
+}
+
+/*****************************************************************************/
+/* load a png file */
+/* return 0 ok */
+/* return 1 error */
+static int
+xrdp_bitmap_load_png(struct xrdp_bitmap *self, const char *filename, int *palette,int background)
+{
+    FILE* fp = 0;
+    png_byte header[8];
+    png_structp png_ptr;
+    png_infop info_ptr;
+    int i = 0;
+    int j = 0;
+    png_bytep k;
+    int color = 0;
+    png_bytep *rows;
+    int has_alpha = 0;
+    int br,bg,bb;  /* Background RGB */
+
+    /* Get the RGB values from the background */
+    if (self->bpp == 8) {
+        color = palette[background];
+        SPLITCOLOR32(br,bg,bb,color);
+    } else if (self->bpp == 15) {
+        SPLITCOLOR15(br,bg,bb,background);
+    } else if (self->bpp == 16) {
+        SPLITCOLOR16(br,bg,bb,background);
+    } else {
+        SPLITCOLOR32(br,bg,bb,background);
+    }
+
+    g_memset(&header,0,sizeof(header));
+
+    if (!g_file_exist(filename))
+    {
+        g_writeln("xrdp_bitmap_load_png: error png file [%s] does not exist",
+                  filename);
+        return 1;
+    }
+
+    if ((fp = fopen(filename,"rb")) == 0)
+    {
+        g_writeln("xrdp_bitmap_load_png: error loading png from file [%s]",
+                  filename);
+        return 1;
+    }
+
+    /* Check the header */
+    if (fread(header,sizeof(header),1,fp) != 1 ||
+        png_sig_cmp(header,0,sizeof(header)) != 0)
+    {
+        g_writeln("xrdp_bitmap_load_png: error png file [%s] invalid header",
+                  filename);
+        fclose(fp);
+        return 1;
+    }
+
+    png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING,0,0,0);
+    info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr) {
+        g_writeln("xrdp_bitmap_load_png: error png file [%s] can't create info struct",
+                filename);
+        png_destroy_read_struct(&png_ptr, 0, 0);
+        fclose(fp);
+        return 1;
+    }
+ 
+    /* libpng's exception-style error handling uses setjmp/longjmp */
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        /* Error should already be displayed */
+        png_destroy_read_struct(&png_ptr, &info_ptr, 0);
+        if (fp) fclose(fp);
+        return 1;
+    }
+ 
+    /* Read the file */
+    png_init_io(png_ptr, fp);
+    png_set_sig_bytes(png_ptr, sizeof(header));
+    png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_STRIP_16 |PNG_TRANSFORM_PACKING | PNG_TRANSFORM_EXPAND , 0);
+    fclose(fp);
+    fp = 0;
+    rows = png_get_rows(png_ptr,info_ptr);
+ 
+    /* Re-size the bitmap */
+    xrdp_bitmap_resize(self, png_get_image_width(png_ptr,info_ptr),
+                             png_get_image_height(png_ptr,info_ptr));
+
+    /* Do we have alpha? */
+    has_alpha = (png_get_color_type(png_ptr,info_ptr) & PNG_COLOR_MASK_ALPHA);
+    for (i = 0; i < self->height; i++)
+    {
+        k=&rows[i][0];
+        for (j = 0; j < self->width; j++)
+        {
+            int r,g,b;
+            r = *k++;
+            g = *k++;
+            b = *k++;
+
+            if (has_alpha)
+            {
+                /* Merge with the background pixel color */
+                int a = *k++;
+                int ainv = (255 - a);
+                r = (r * a + br * ainv + 128 ) / 255;
+                g = (g * a + bg * ainv + 128 ) / 255;
+                b = (b * a + bb * ainv + 128 ) / 255;
+            }
+
+            if (self->bpp == 8)
+            {
+                color = xrdp_bitmap_get_index(self, palette, COLOR24RGB(r,g,b));
+            }
+            else if (self->bpp == 15)
+            {
+                color = COLOR15(r,g,b);
+            }
+            else if (self->bpp == 16)
+            {
+                color = COLOR16(r,g,b);
+            } else {
+                color = COLOR24RGB(r,g,b);
+            }
+
+            xrdp_bitmap_set_pixel(self, j, i, color);
+        }
+    }
+
+    png_destroy_read_struct(&png_ptr,&info_ptr,0);
+
+    return 0;
+}
+
+
+/*****************************************************************************/
+/* load an image file */
+/* return 0 ok */
+/* return 1 error */
+int
+xrdp_bitmap_load(struct xrdp_bitmap *self, const char *filename, int *palette,int background)
+{
+    int result;
+    size_t len = strlen(filename);
+    if (len >= 4 && g_strcasecmp(filename+len-4,".png") == 0)
+    {
+        result = xrdp_bitmap_load_png(self,filename,palette,background);
+    }
+    else
+    {
+        result = xrdp_bitmap_load_bmp(self,filename,palette);
+    }
+
+    return result;
+}
+
 
 /*****************************************************************************/
 int

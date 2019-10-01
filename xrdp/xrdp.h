@@ -204,7 +204,11 @@ xrdp_bitmap_set_focus(struct xrdp_bitmap* self, int focused);
 int
 xrdp_bitmap_resize(struct xrdp_bitmap* self, int width, int height);
 int
-xrdp_bitmap_load(struct xrdp_bitmap* self, const char* filename, int* palette);
+xrdp_bitmap_scale(struct xrdp_bitmap* self, int targ_width, int targ_height);
+int
+xrdp_bitmap_zoom(struct xrdp_bitmap* self, int targ_width, int targ_height);
+int
+xrdp_bitmap_load(struct xrdp_bitmap* self, const char* filename, int* palette,int background);
 int
 xrdp_bitmap_get_pixel(struct xrdp_bitmap* self, int x, int y);
 int

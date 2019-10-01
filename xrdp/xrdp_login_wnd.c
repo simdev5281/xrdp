@@ -26,6 +26,9 @@
 #include "xrdp.h"
 #include "log.h"
 
+#define LOGO_WIDTH 140
+#define LOGO_HEIGHT 140
+
 #define ASK "ask"
 #define ASK_LEN g_strlen(ASK)
 #define BASE64PREFIX "{base64}"
@@ -739,11 +742,14 @@ xrdp_login_wnd_create(struct xrdp_wm *self)
                            XRDP_SHARE_PATH, globals->ls_background_image);
             }
             log_message(LOG_LEVEL_DEBUG, "We try to load the following background file: %s", fileName);
-            xrdp_bitmap_load(but, fileName, self->palette);
+            xrdp_bitmap_load(but, fileName, self->palette,globals->ls_bg_color);
             but->parent = self->screen;
             but->owner = self->screen;
-            but->left = self->screen->width - but->width;
-            but->top = self->screen->height - but->height;
+            /* Scale the image to the screen size */
+            /* TODO : Add options for scale/zoom, etc */
+            xrdp_bitmap_zoom(but,self->screen->width,self->screen->height);
+            but->left = 0;
+            but->top = 0;
             list_add_item(self->screen->child_list, (long)but);
         }
 
@@ -757,7 +763,8 @@ xrdp_login_wnd_create(struct xrdp_wm *self)
         if (self->screen->bpp <= 8)
             g_snprintf(globals->ls_logo_filename, 255, "%s/ad256.bmp", XRDP_SHARE_PATH);
 
-        xrdp_bitmap_load(but, globals->ls_logo_filename, self->palette);
+        xrdp_bitmap_load(but, globals->ls_logo_filename, self->palette,globals->ls_bg_color);
+        xrdp_bitmap_scale(but,LOGO_WIDTH,LOGO_HEIGHT);
         but->parent = self->login_window;
         but->owner = self->login_window;
         but->left = globals->ls_logo_x_pos;

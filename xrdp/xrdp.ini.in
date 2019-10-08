@@ -113,10 +113,13 @@ ls_bg_color=dedede
 ; optional background image filename (bmp format).
 #ls_background_image=
 
+; optional background image filename (bmp or png format).
+ls_background_image=/usr/share/backgrounds/ace/default.png
+
 ; logo
 ; full path to bmp-file or file in shared folder
-ls_logo_filename=
-ls_logo_x_pos=55
+ls_logo_filename=/usr/share/icons/hicolor/256x256/apps/fedora-logo-icon.png
+ls_logo_x_pos=105
 ls_logo_y_pos=50
 
 ; for positioning labels such as username, password etc

@@ -201,7 +201,7 @@ port=-1
 ; support for multiple monitors.
 ; Unlike traditional VNC sessions, you can connect to (and resize) active
 ; VNC sessions on the same machine which have different sizes.
-#code=1
+code=1
 
 [vnc-any]
 name=vnc-any

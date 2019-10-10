@@ -18,7 +18,8 @@ declare leader2=b/
 declare inPatch=
 declare ignoreNext=
 
-while read line; do
+IFS=''
+while read -r line; do
     # Are we ignoring this one?
     if [[ $ignoreNext ]]; then
         ignoreNext=
@@ -26,7 +27,9 @@ while read line; do
     fi
     if [[ $line == ---* ]]; then
         #  Start of a patch
+        unset IFS
         set -- $line
+        IFS=''
         if [[ $2 == $leader1* ]]; then
             file=${2#$leader1}
             case "$file" in

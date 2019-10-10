@@ -1,0 +1,60 @@
+module xrdp 1.0.1;
+
+require {
+        type unconfined_service_t;
+        type unconfined_t;
+        type oddjob_t;
+        type oddjob_mkhomedir_exec_t;
+        # See support/all_perms.spt
+        all_kernel_class_perms
+        class process2 nnp_transition;
+}
+
+# ------------------------------------------------------------------
+# User session support
+# ------------------------------------------------------------------
+# Allow user processes started by xrdp-sesman to transition to
+# unconfined_t to match normal login sessions. This is implemented by
+# pam_selinux when the user session starts.
+allow unconfined_service_t unconfined_t:process transition;
+# Allow sssd to manage user keys registed by the service.
+sssd_manage_keys(unconfined_service_t)
+# Allow oddjob to create home directories if required, in the same
+# context as xrdp-sesman
+allow oddjob_t unconfined_service_t:process transition;
+allow unconfined_service_t oddjob_mkhomedir_exec_t:file entrypoint;
+
+# ------------------------------------------------------------------
+# X server support
+# ------------------------------------------------------------------
+# We need ideally to transition to xserver_t to run an xserver.
+#
+# For Xorg, things are as follows:-
+# 1) The pam session is started from xrdp-sesman running as
+#    unconfined_service_t. This sets the security context for the next
+#    exec'ed process to be unconfined_t, but doesn't change the context
+#    of the current process.
+# 2) We then execute setpriv before running Xorg (Fedora patch). This
+#    transitions to unconfined_t (allowed above).
+# 3) setpriv calls Xvnc, of type xserver_exec_t running as
+#    unconfined_t. We transition to xserver_t (on 7.5 and later) by
+#    using the xserver_domtrans() rule below.
+# 4) Because setpriv uses --no-new-privs, we have to explicitly allow the
+#    transition to xserver_t as an nnp_transition.
+#
+# For Xvnc, things are somewhat broke. By the time we call Xvnc, we've
+# started the PAM session, so the system is all set up to transition to
+# unconfined_t on the next exec. This leaves us with a few bad options:-
+#
+# 1) We can't cancel the pending exec() transition without closing the
+#    session, or somehow calling the pam_selinux cancel functionality.
+# 2) We could add another process into the mix to transition to
+#    unconfined_t, and from there to xserver_t but this needs another patch
+# 3) We can just run Xvnc as unconfined_t. This needs a rule set up to
+#    allow xserver_exec_t as an entrypoint to unconfined_t
+#
+# We've gone for 3 at the moment which isn't the best technical solution, but
+# is most aligned with the current Fedora xrdp.te.
+xserver_domtrans(unconfined_t)
+allow unconfined_t xserver_t:process2 nnp_transition;
+allow unconfined_t xserver_exec_t:file entrypoint; # Xvnc hack - see above

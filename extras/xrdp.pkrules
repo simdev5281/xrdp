@@ -1,0 +1,18 @@
+// -*- mode: js; js-indent-level: 4; indent-tabs-mode: nil -*-
+// Allows XRDP sessions to create colord profiles and devices
+
+polkit.addRule(function(action, subject) {
+    switch (action.id) {
+        case 'org.freedesktop.color-manager.create-profile':
+        case 'org.freedesktop.color-manager.create-device':
+        case 'org.freedesktop.color-manager.delete-device':
+            // Log the subject anyway, for when this inevitably breaks
+            polkit.log("subject=" + subject);
+            if (!subject.local && subject.active) {
+                return polkit.Result.YES;
+            }
+            break
+    }
+
+    return undefined;
+});

@@ -394,6 +394,15 @@ g_tcp_set_keepalive(int sck)
                            option_len) == 0)
             {
                 ret = 0; /* success */
+#ifdef __linux
+                option_value = 180;
+                if (setsockopt(sck, SOL_TCP, TCP_KEEPIDLE,
+                               (char *)&option_value, option_len) < 0)
+                {
+                    g_writeln("Error setting tcp_keepalive value");
+                    ret = 1;
+                }
+#endif
             }
             else
             {
